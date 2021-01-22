@@ -1,85 +1,84 @@
 --------------------------- MODULE ZeusOwnershipFaults ---------------------------
 
-EXTENDS rVNF_sharding
+EXTENDS ZeusOwnership
 
 sharing_ok == \A nn \in APP_LIVE_NODES: \/ ~has_data(nn)
                                         \/ tState[nn] = "valid"
     
 arb_replay(n) == 
     /\ upd_rEID(n)
-    /\ upd_s_meta_driver(n, sTS[n].ver, sTS[n].tb)
-    /\ s_send_inv(n, n, sTS[n], sVector[n], rTS[n], rID[n], rType[n])
+    /\ upd_o_meta_driver(n, oTS[n].ver, oTS[n].tb)
+    /\ o_send_inv(n, n, oTS[n], oVector[n], rTS[n], rID[n], rType[n])
     
     
 -------------------------------------------------------------------------------------
 \* Requester replays msg after a failure
-SFRequester == 
+OFRequester == 
   \E n \in APP_LIVE_NODES: 
-     /\ sState[n] = "request"
+     /\ oState[n] = "request"
      /\ rEID[n] < mEID 
      /\ upd_rEID(n)
-     /\ s_send_req(rTS[n], rID[n], rType[n])
-     /\ unchanged_mtcs
+     /\ o_send_req(rTS[n], rID[n], rType[n])
+     /\ unchanged_mtco
 
-SFDriverRequester ==    \* waits for sharing-ok + computes next sVec transitions to valid +
-                        \* send vals with the proper changes in the sVec
+OFDriverRequester ==    \* waits for sharing-ok + computes next oVec transitions to valid +
+                        \* send vals with the proper changes in the oVec
   \E n \in LB_LIVE_NODES: 
-    /\ sState[n] = "drive"
+    /\ oState[n] = "drive"
     /\ has_rcved_all_ACKs(n)
     /\ ~requester_is_alive(n)
-    /\ s_send_val(sTS[n]) 
-    /\ upd_s_meta(n, sTS[n].ver, sTS[n].tb, "valid", 0, post_sVec(n, 0, sVector[n]), {}) 
+    /\ o_send_val(oTS[n]) 
+    /\ upd_o_meta(n, oTS[n].ver, oTS[n].tb, "valid", 0, post_oVec(n, 0, oVector[n]), {}) 
     /\ unchanged_mtrc 
 
-SFArbReplay == \* drivers resets acks and replays msg on arbiter failures
+OFArbReplay == \* drivers resets acks and replays msg on arbiter failures
                \* if the failed arbiter was an owner we need to wait for sharing-ok 
                \* for convinience arb-replays happen on any failure (e.g., requester)
   \E n \in mAliveNodes: 
-        /\ (sState[n] = "drive" \/ sState[n] = "invalid")
-        /\ (n \in LB_LIVE_NODES \/ sVector[n].owner = n)
+        /\ (oState[n] = "drive" \/ oState[n] = "invalid")
+        /\ (n \in LB_LIVE_NODES \/ oVector[n].owner = n)
         /\ rEID[n] < mEID 
-        /\ \/ sVector[n].owner \in mAliveNodes
+        /\ \/ oVector[n].owner \in mAliveNodes
            \/ sharing_ok
         /\ arb_replay(n)
         /\ unchanged_mtc
         
-SLBArbiterACK == \* ACK an INV message which has the same as local s_ts but wasn't applied 
-  \E n \in LB_LIVE_NODES: \E m \in sMsgs:
+OLBArbiterACK == \* ACK an INV message which has the same as local s_ts but wasn't applied 
+  \E n \in LB_LIVE_NODES: \E m \in oMsgs:
     /\ ~inv_to_be_applied(n, m)
-    /\ s_rcv_inv_equal_ts(m, n)
-    /\ s_send_ack(n, m.sTS, 0) 
-    /\ unchanged_mtrcs 
+    /\ o_rcv_inv_equal_ts(m, n)
+    /\ o_send_ack(n, m.oTS, 0) 
+    /\ unchanged_mtrco 
 
 -------------------------------------------------------------------------------------
 \* INV response to an owner who did an arb-replay due to a lost val
-SFMOArbiterLostVALOldReplay ==
+OFMOArbiterLostVALOldReplay ==
     \E l \in LB_LIVE_NODES: \E a \in APP_LIVE_NODES:
-    /\ sState[a] = "drive"
-    /\ sVector[a].owner = a
-    /\ is_greaterTS(sTS[l], sTS[a])
-    /\ s_send_inv(l, l, sTS[l], sVector[l], rTS[l], rID[l], rType[l])
-    /\ unchanged_mtrcs 
+    /\ oState[a] = "drive"
+    /\ oVector[a].owner = a
+    /\ is_greaterTS(oTS[l], oTS[a])
+    /\ o_send_inv(l, l, oTS[l], oVector[l], rTS[l], rID[l], rType[l])
+    /\ unchanged_mtrco 
 
 \* message failures
-SFMOArbiterINVLostVAL ==  \* An INV is received (w/ higher ts) to a non-valid owner 
+OFMOArbiterINVLostVAL ==  \* An INV is received (w/ higher ts) to a non-valid owner 
                           \* who lost a VAL for the message that demoted him
-\E n \in APP_LIVE_NODES: \E m \in sMsgs:
-    /\ sVector[n].owner = n
-    /\ s_rcv_inv_greater_ts(m, n)
-    /\ m.sVector.owner # n
-    /\ upd_s_meta_apply_val_n_reset_s_state(n)
-    /\ s_send_ack(n, m.sTS, tVersion[n]) 
+\E n \in APP_LIVE_NODES: \E m \in oMsgs:
+    /\ oVector[n].owner = n
+    /\ o_rcv_inv_greater_ts(m, n)
+    /\ m.oVector.owner # n
+    /\ upd_o_meta_apply_val_n_reset_o_state(n)
+    /\ o_send_ack(n, m.oTS, tVersion[n]) 
     /\ unchanged_mtrc
                           
-SFMRequesterVALReplay ==    \* Requester receives a RESP (already applied) 
+OFMRequesterVALReplay ==    \* Requester receives a RESP (already applied) 
                             \* and re-sends a VAL to arbiters
-\E n \in APP_LIVE_NODES: \E m \in sMsgs:
-    /\ s_rcv_resp(m, n)  
+\E n \in APP_LIVE_NODES: \E m \in oMsgs:
+    /\ o_rcv_resp(m, n)  
     /\ m.rTS.tb = n
-    /\ m.sTS    = sTS[n]
-\*    /\ s_send_val(m.sTS, m.sVector)  
-    /\ s_send_val(m.sTS)
-    /\ unchanged_mtrcs 
+    /\ m.oTS    = oTS[n]
+    /\ o_send_val(m.oTS)
+    /\ unchanged_mtrco 
 
 -------------------------------------------------------------------------------------
 block_owner_failures_if_not_in_tx_valid_state(n) ==
@@ -94,26 +93,26 @@ nodeFailure(n, LIVE_NODE_SET) ==
     \* Update Membership and epoch id
     /\ mEID'        = mEID + 1
     /\ mAliveNodes' = mAliveNodes \ {n} 
-    \* Remove failed node from sVectors 
-    /\ sVector' = [l \in S_NODES |-> [readers |-> sVector[l].readers \ {n},
-                                      owner   |-> IF   sVector[l].owner = n 
+    \* Remove failed node from oVectors 
+    /\ oVector' = [l \in O_NODES |-> [readers |-> oVector[l].readers \ {n},
+                                      owner   |-> IF   oVector[l].owner = n 
                                                   THEN 0
-                                                  ELSE sVector[l].owner   ]]
+                                                  ELSE oVector[l].owner   ]]
     /\ unchanged_Mtrc
-    /\ UNCHANGED <<sState, sDriver, sRcvACKs, sTS>>
+    /\ UNCHANGED <<oState, oDriver, oRcvACKs, oTS>>
 
 -------------------------------------------------------------------------------------
 FNext == 
-    \/ SFRequester
-    \/ SFDriverRequester
-    \/ SFArbReplay
-    \/ SLBArbiterACK
-    \/ SFMOArbiterINVLostVAL
-    \/ SFMRequesterVALReplay 
-    \/ SFMOArbiterLostVALOldReplay
+    \/ OFRequester
+    \/ OFDriverRequester
+    \/ OFArbReplay
+    \/ OLBArbiterACK
+    \/ OFMOArbiterINVLostVAL
+    \/ OFMRequesterVALReplay 
+    \/ OFMOArbiterLostVALOldReplay
     
-SFNext == 
-    \/ SNext 
+OFNext == 
+    \/ ONext 
     \/ FNext
     \/ \E n \in mAliveNodes: 
         \/ nodeFailure(n, LB_LIVE_NODES)  \* emulate LB node failures
@@ -123,7 +122,7 @@ SFNext ==
 (* The complete definition of the algorithm                                *)
 (***************************************************************************)
 
-SFSpec == SInit /\ [][SFNext]_vars
+SFSpec == OInit /\ [][OFNext]_vars
 
 THEOREM SFSpec => Invariants
 =============================================================================
