@@ -1,6 +1,6 @@
 ------------------------------- MODULE ZeusReliableCommit -------------------------------
-\* This module specifies the reliable commit protocol presented 
-\* in the Zeus paper that appears in Eurosys'21.
+\* Specification of Zeus's reliable commit protocol presented in the Zeus paper 
+\* that appears in Eurosys'21.
 \* This module includes everything but the pipelining optimization presented in the paper.
 
 \* Model check passed [@ 21st of Jan 2021] with the following parameters:
@@ -131,8 +131,8 @@ RNodeFailure(n) == \* Emulate a node failure
 RNewOwner(n) ==
     /\ \A k \in rAliveNodes: 
        /\ rKeySharers[k]        /= "owner"
-       /\ \/ /\  rKeyState[k]    = "valid"    \* all alive replicas are in valid state
-             /\  rKeySharers[k]  = "reader"  \* and there is not alive owner
+       /\ \/ /\  rKeyState[k]    = "valid"       \* all alive replicas are in valid state
+             /\  rKeySharers[k]  = "reader"      \* and there is not alive owner
           \/ /\  rKeySharers[k]  = "non-sharer"  \* and there is not alive owner
     /\ rKeySharers'              = [rKeySharers    EXCEPT ![n] = "owner"]
     /\ UNCHANGED <<rMsgs, rKeyState, rKeyVersion, rKeyRcvedACKs, 
@@ -252,7 +252,7 @@ RWriteReplay(n) == \* Execute a write-replay
                version    |-> rKeyVersion[n]])
     /\  UNCHANGED <<rKeyVersion, rKeySharers, rAliveNodes, rNodeEpochID, rEpochID>>
 
-RLocalWriteReplay(n) == \* TODO this might not even be necessary
+RLocalWriteReplay(n) == 
     /\ \/ rKeySharers[n] = "owner" 
        \/ rKeyState[n]   = "replay"
     /\  RWriteReplay(n)

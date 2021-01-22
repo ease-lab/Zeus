@@ -5,18 +5,18 @@ EXTENDS     Integers, FiniteSets
 CONSTANTS   \* LB_NODES and APP_NODES must not intersect and neither should contain 0.
             LB_NODES, 
             APP_NODES,
-            S_MAX_VERSION,
-            S_MAX_FAILURES,
-            S_MAX_DATA_VERSION
+            O_MAX_VERSION,
+            O_MAX_FAILURES,
+            O_MAX_DATA_VERSION
                       
 
-VARIABLES   \* variable prefixes --> s: sharding, r: request, t: transactional, m: membership 
+VARIABLES   \* variable prefixes --> o: ownership, r: request, t: transactional, m: membership 
             \* VECTORS indexed by node_id
-            sTS,
-            sState,
-            sDriver,
-            sVector,    \* No readers/owner: .readers = {} / .owner = 0 
-            sRcvACKs,
+            oTS,
+            oState,
+            oDriver,
+            oVector,    \* No readers/owner: .readers = {} / .owner = 0 
+            oRcvACKs,
             \* 
             rTS,
             rID,
@@ -27,18 +27,18 @@ VARIABLES   \* variable prefixes --> s: sharding, r: request, t: transactional, 
             tVersion,     \* tVesion sufice to represent tData | = 0 --> no data | > 0 data (reader / owner)
             tRcvACKs,
             \* GLOBAL variables 
-            sMsgs,
+            oMsgs,
             mAliveNodes,  \* membership
             mEID,         \* membership epoch id
             committedREQs, \* only to check invariant that exactly one of concurrent REQs is committed
             committedRTS  \* only to emulate FIFO REQ channels (i.e., do not re execute same client requests)
 
-vars == << sTS, sState, sDriver, sVector, sRcvACKs, rTS, rID, rType, rEID,        
-           tState, tVersion, tRcvACKs, sMsgs, mAliveNodes, mEID, committedREQs, committedRTS>>
+vars == << oTS, oState, oDriver, oVector, oRcvACKs, rTS, rID, rType, rEID,        
+           tState, tVersion, tRcvACKs, oMsgs, mAliveNodes, mEID, committedREQs, committedRTS>>
 
 \* Helper operators 
-S_NODES        == LB_NODES  \union APP_NODES
-S_NODES_0      == S_NODES   \union {0}
+O_NODES        == LB_NODES  \union APP_NODES
+O_NODES_0      == O_NODES   \union {0}
 LB_NODES_0     == LB_NODES  \union {0}
 APP_NODES_0    == APP_NODES \union {0} 
 LB_LIVE_NODES  == LB_NODES  \intersect mAliveNodes
@@ -46,134 +46,133 @@ APP_LIVE_NODES == APP_NODES \intersect mAliveNodes
 LB_LIVE_ARBITERS(driver) == LB_LIVE_NODES \ {driver} \* all arbiters except driver and owner
 
 ASSUME LB_NODES \intersect APP_NODES = {}
-ASSUME \A k \in S_NODES: k # 0 \* we use 0 as the default noop
+ASSUME \A k \in O_NODES: k # 0 \* we use 0 as the default noop
 
 -------------------------------------------------------------------------------------
 \* Useful Unchanged shortcuts
-unchanged_M == UNCHANGED <<sMsgs>>
+unchanged_M == UNCHANGED <<oMsgs>>
 unchanged_m == UNCHANGED <<mEID, mAliveNodes>>
 unchanged_t == UNCHANGED <<tState,  tVersion, tRcvACKs>>
 unchanged_r == UNCHANGED <<rID, rTS, rEID, rType>>
 unchanged_c == UNCHANGED <<committedREQs, committedRTS>>
-unchanged_s == UNCHANGED <<sState, sDriver, sVector, sRcvACKs, sTS>>
+unchanged_o == UNCHANGED <<oState, oDriver, oVector, oRcvACKs, oTS>>
 unchanged_mc    == unchanged_m    /\ unchanged_c 
 unchanged_mtc   == unchanged_mc   /\ unchanged_t  
 unchanged_mtr   == unchanged_m    /\ unchanged_t  /\ unchanged_r
 unchanged_Mrc   == unchanged_r    /\ unchanged_c  /\ unchanged_M
-unchanged_mrcs  == unchanged_mc   /\ unchanged_r  /\ unchanged_s
-unchanged_mtcs  == unchanged_mtc  /\ unchanged_s 
+unchanged_mrco  == unchanged_mc   /\ unchanged_r  /\ unchanged_o
+unchanged_mtco  == unchanged_mtc  /\ unchanged_o 
 unchanged_mtrc  == unchanged_mtc  /\ unchanged_r 
 unchanged_Mtrc  == unchanged_Mrc  /\ unchanged_t 
 unchanged_Mmrc  == unchanged_Mrc  /\ unchanged_m
-unchanged_mtrcs == unchanged_mtrc /\ unchanged_s 
-unchanged_Mmrcs == unchanged_mrcs /\ unchanged_M
+unchanged_mtrco == unchanged_mtrc /\ unchanged_o 
+unchanged_Mmrco == unchanged_mrco /\ unchanged_M
 unchanged_Mmtrc == unchanged_mtrc /\ unchanged_M
  
                               
 -------------------------------------------------------------------------------------
 \* Type definitions
-Type_sTS     == [ver: 0..S_MAX_VERSION, tb: LB_NODES_0]
-Type_rTS     == [ver: 0..S_MAX_VERSION, tb: APP_NODES_0]
+Type_oTS     == [ver: 0..O_MAX_VERSION, tb: LB_NODES_0]
+Type_rTS     == [ver: 0..O_MAX_VERSION, tb: APP_NODES_0]
 Type_tState  == {"valid", "invalid", "write"} \* readers can be in valid and invalid and owner in valid and write
-Type_sState  == {"valid", "invalid", "drive", "request"} \* all nodes start from valid
+Type_oState  == {"valid", "invalid", "drive", "request"} \* all nodes start from valid
 Type_rType   == {"add-owner", "change-owner", "add-reader", "rm-reader", "NOOP"}
-Type_sVector == [readers:  SUBSET APP_NODES, owner: APP_NODES_0]
+Type_oVector == [readers:  SUBSET APP_NODES, owner: APP_NODES_0]
 
-Type_sMessage ==  \* Msgs exchanged by the sharding protocol 
+Type_oMessage ==  \* Msgs exchanged by the sharding protocol 
     [type: {"REQ"},     rTS      : Type_rTS,
                         rID      : Nat,
                         rType    : Type_rType,
-                        epochID  : 0..S_MAX_FAILURES] 
+                        epochID  : 0..O_MAX_FAILURES] 
     \union
     [type: {"NACK"},    rTS      : Type_rTS,
                         rID      : Nat]
     \union
-    [type: {"S_INV"},   sender   : S_NODES,
-                        driver   : S_NODES,
+    [type: {"S_INV"},   sender   : O_NODES,
+                        driver   : O_NODES,
                         rTS      : Type_rTS,
                         rID      : Nat,
-                        sTS      : Type_sTS,
-                        sVector  : Type_sVector,
+                        oTS      : Type_oTS,
+                        oVector  : Type_oVector,
                         rType    : Type_rType,
-                        epochID  : 0..S_MAX_FAILURES] 
+                        epochID  : 0..O_MAX_FAILURES] 
     \union
-    [type: {"S_ACK"},   sender   : S_NODES,
-                        sTS      : Type_sTS,
-                        tVersion : 0..S_MAX_DATA_VERSION, \* emulates data send as well
-                        epochID  : 0..S_MAX_FAILURES]
+    [type: {"S_ACK"},   sender   : O_NODES,
+                        oTS      : Type_oTS,
+                        tVersion : 0..O_MAX_DATA_VERSION, \* emulates data send as well
+                        epochID  : 0..O_MAX_FAILURES]
     \union
-    [type: {"RESP"},    sVector  : Type_sVector,
-                        sTS      : Type_sTS,
+    [type: {"RESP"},    oVector  : Type_oVector,
+                        oTS      : Type_oTS,
                         rTS      : Type_rTS,
 \*                        preOwner , \* pre-request owner is not needed for model check (since we model bcast messages)
-                        tVersion : 0..S_MAX_DATA_VERSION,
-                        epochID  : 0..S_MAX_FAILURES]
+                        tVersion : 0..O_MAX_DATA_VERSION,
+                        epochID  : 0..O_MAX_FAILURES]
     \union
-    [type: {"S_VAL"},   sTS      : Type_sTS,
-\*                        sVector  : Type_sVector,     TBD:post-svec
-                        epochID  : 0..S_MAX_FAILURES]
+    [type: {"S_VAL"},   oTS      : Type_oTS,
+                        epochID  : 0..O_MAX_FAILURES]
 
 
-Type_tMessage ==  \* msgs exchanged by the transactional protocol
+Type_tMessage ==  \* msgs exchanged by the transactional reliable commit protocol
     [type: {"T_INV", "T_ACK", "T_VAL"},   tVersion : Nat,
-                                          sender   : S_NODES,
-                                          epochID  : 0..S_MAX_FAILURES]
+                                          sender   : O_NODES,
+                                          epochID  : 0..O_MAX_FAILURES]
                         
    
 -------------------------------------------------------------------------------------
 \* Type check and initialization
    
-STypeOK ==  \* The type correctness invariant
-    /\ sTS           \in [S_NODES   -> Type_sTS]
-    /\ sState        \in [S_NODES   -> Type_sState]
-    /\ sDriver       \in [S_NODES   -> S_NODES_0]
-    /\ sVector       \in [S_NODES   -> Type_sVector]
-    /\ \A n \in S_NODES: sRcvACKs[n] \subseteq (S_NODES \ {n})
-    /\ rTS           \in [S_NODES   -> Type_rTS]
-    /\ rID           \in [S_NODES   -> 0..S_MAX_VERSION]
-    /\ rType         \in [S_NODES   -> Type_rType]
-    /\ rEID          \in [S_NODES   -> 0..(Cardinality(S_NODES) - 1)]
-    /\ tVersion      \in [S_NODES   -> 0..S_MAX_DATA_VERSION]
-    /\ tState        \in [S_NODES   -> Type_tState]
-    /\ \A n \in S_NODES: tRcvACKs[n] \subseteq (S_NODES \ {n})
-    /\ committedREQs \subseteq Type_sTS
+OTypeOK ==  \* The type correctness invariant
+    /\ oTS           \in [O_NODES   -> Type_oTS]
+    /\ oState        \in [O_NODES   -> Type_oState]
+    /\ oDriver       \in [O_NODES   -> O_NODES_0]
+    /\ oVector       \in [O_NODES   -> Type_oVector]
+    /\ \A n \in O_NODES: oRcvACKs[n] \subseteq (O_NODES \ {n})
+    /\ rTS           \in [O_NODES   -> Type_rTS]
+    /\ rID           \in [O_NODES   -> 0..O_MAX_VERSION]
+    /\ rType         \in [O_NODES   -> Type_rType]
+    /\ rEID          \in [O_NODES   -> 0..(Cardinality(O_NODES) - 1)]
+    /\ tVersion      \in [O_NODES   -> 0..O_MAX_DATA_VERSION]
+    /\ tState        \in [O_NODES   -> Type_tState]
+    /\ \A n \in O_NODES: tRcvACKs[n] \subseteq (O_NODES \ {n})
+    /\ committedREQs \subseteq Type_oTS
     /\ committedRTS  \subseteq Type_rTS
-    /\ sMsgs         \subseteq (Type_sMessage \union Type_tMessage)
-    /\ mEID          \in 0..(Cardinality(S_NODES) - 1)
-    /\ mAliveNodes   \subseteq S_NODES
+    /\ oMsgs         \subseteq (Type_oMessage \union Type_tMessage)
+    /\ mEID          \in 0..(Cardinality(O_NODES) - 1)
+    /\ mAliveNodes   \subseteq O_NODES
 
-SInit == \* The initial predicate
-    /\ sTS           = [n \in S_NODES   |-> [ver |-> 0, tb |-> 0]]
-    /\ sState        = [n \in S_NODES   |-> "valid"]
-    /\ sDriver       = [n \in S_NODES   |-> 0]
-    /\ sVector       = [n \in S_NODES   |-> [readers |-> {}, owner |-> 0]]
-    /\ sRcvACKs      = [n \in S_NODES   |-> {}]
-    /\ rTS           = [n \in S_NODES   |-> [ver |-> 0, tb |-> 0]]
-    /\ rID           = [n \in S_NODES   |-> 0]
-    /\ rEID          = [n \in S_NODES   |-> 0]
-    /\ rType         = [n \in S_NODES   |-> "NOOP"]
-    /\ tVersion      = [n \in S_NODES   |-> 0]
-    /\ tState        = [n \in S_NODES   |-> "valid"]
-    /\ tRcvACKs      = [n \in S_NODES   |-> {}]
+OInit == \* The initial predicate
+    /\ oTS           = [n \in O_NODES   |-> [ver |-> 0, tb |-> 0]]
+    /\ oState        = [n \in O_NODES   |-> "valid"]
+    /\ oDriver       = [n \in O_NODES   |-> 0]
+    /\ oVector       = [n \in O_NODES   |-> [readers |-> {}, owner |-> 0]]
+    /\ oRcvACKs      = [n \in O_NODES   |-> {}]
+    /\ rTS           = [n \in O_NODES   |-> [ver |-> 0, tb |-> 0]]
+    /\ rID           = [n \in O_NODES   |-> 0]
+    /\ rEID          = [n \in O_NODES   |-> 0]
+    /\ rType         = [n \in O_NODES   |-> "NOOP"]
+    /\ tVersion      = [n \in O_NODES   |-> 0]
+    /\ tState        = [n \in O_NODES   |-> "valid"]
+    /\ tRcvACKs      = [n \in O_NODES   |-> {}]
     /\ committedRTS  = {} 
     /\ committedREQs = {} 
-    /\ sMsgs         = {}
+    /\ oMsgs         = {}
     /\ mEID          = 0
-    /\ mAliveNodes   = S_NODES
+    /\ mAliveNodes   = O_NODES
 
 Min(S) == CHOOSE x \in S: \A y \in S \ {x}: y > x
 set_wo_min(S) == S \ {Min(S)}
               
-\* First Command executed once after SInit to initialize owner/readers and sVector state
-SInit_min_owner_rest_readers ==
-    /\ \A x \in S_NODES: tVersion[x] = 0
-    /\ tVersion' = [n \in S_NODES |-> IF n \in LB_NODES THEN 0 ELSE 1]
-    /\ sVector'  = [n \in S_NODES |-> IF n \in set_wo_min(APP_NODES)
-                                      THEN sVector[n]
+\* First Command executed once after OInit to initialize owner/readers and oVector state
+OInit_min_owner_rest_readers ==
+    /\ \A x \in O_NODES: tVersion[x] = 0
+    /\ tVersion' = [n \in O_NODES |-> IF n \in LB_NODES THEN 0 ELSE 1]
+    /\ oVector'  = [n \in O_NODES |-> IF n \in set_wo_min(APP_NODES)
+                                      THEN oVector[n]
                                       ELSE [readers |-> set_wo_min(APP_NODES), 
                                             owner   |-> Min(APP_NODES)]]
     /\ unchanged_Mmrc 
-    /\ UNCHANGED <<tState, sState, sDriver, sRcvACKs, sTS, tRcvACKs>>
+    /\ UNCHANGED <<tState, oState, oDriver, oRcvACKs, oTS, tRcvACKs>>
 
 -------------------------------------------------------------------------------------
 \* Helper functions
@@ -182,10 +181,10 @@ has_valid_data(n) == /\ has_data(n)
                      /\ tState[n] = "valid"
 
 is_owner(n) ==  /\ has_data(n)
-                /\ sVector[n].owner = n
+                /\ oVector[n].owner = n
 
 is_valid_owner(n) ==  /\ is_owner(n)
-                      /\ sState[n] = "valid"
+                      /\ oState[n] = "valid"
 
 is_reader(n) == /\ has_data(n)
                 /\ ~is_owner(n)
@@ -195,7 +194,7 @@ is_live_arbiter(n) ==  \/ n \in LB_LIVE_NODES
                        \/ is_owner(n)
 
 is_valid_live_arbiter(n) ==  /\ is_live_arbiter(n)
-                             /\ sState[n] = "valid"
+                             /\ oState[n] = "valid"
 
 is_requester(n) == 
     /\ n \in APP_LIVE_NODES
@@ -203,11 +202,11 @@ is_requester(n) ==
 
 is_valid_requester(n) == 
     /\ is_requester(n)
-    /\ sState[n] = "valid"
+    /\ oState[n] = "valid"
 
 is_in_progress_requester(n) == 
     /\ is_requester(n)
-    /\ sState[n] = "request"
+    /\ oState[n] = "request"
 
 requester_is_alive(n) == rTS[n].tb \in mAliveNodes
 
@@ -232,16 +231,16 @@ is_smallerTS(ts1, ts2) == ~is_greatereqTS(ts1, ts2)
 \* Request type Helper functions
 is_non_sharing_req(n) == (rType[n] = "add-owner" \/ rType[n] = "add-reader")
 
-\* Post s_vector based on request type and r (requester or 0 if requester is not alive)
-post_sVec(n, r, pre_sVec) == 
+\* Post o_vector based on request type and r (requester or 0 if requester is not alive)
+post_oVec(n, r, pre_oVec) == 
     IF (rType[n] = "add-owner" \/ rType[n] = "change-owner")
     THEN [owner   |-> r,
-          readers |-> (pre_sVec.readers \union {pre_sVec.owner}) \ {r, 0}]
-    ELSE [owner   |-> pre_sVec.owner, 
+          readers |-> (pre_oVec.readers \union {pre_oVec.owner}) \ {r, 0}]
+    ELSE [owner   |-> pre_oVec.owner, 
           readers |-> IF rType[n] = "remove-reader"
-                         THEN pre_sVec.readers \ {r, 0}
+                         THEN pre_oVec.readers \ {r, 0}
                          ELSE \* rType[n] = "add-reader"
-                             (pre_sVec.readers \union {r}) \ {0}]
+                             (pre_oVec.readers \union {r}) \ {0}]
 
  
 -------------------------------------------------------------------------------------
@@ -250,129 +249,126 @@ post_sVec(n, r, pre_sVec) ==
 \* Used only to emulate FIFO REQ channels (and not re-execute already completed REQs)
 not_completed_rTS(r_ts) == \A c_rTS \in  committedRTS: c_rTS # r_ts
 
-\* Messages in sMsgs are only appended to this variable (not removed once delivered) 
+\* Messages in oMsgs are only appended to this variable (not removed once delivered) 
 \* intentionally to check protocols tolerance in dublicates and reorderings 
-send_smsg(m) == sMsgs' = sMsgs \union {m}  
+send_omsg(m) == oMsgs' = oMsgs \union {m}  
 
-s_send_req(r_ts, r_id, r_type) ==  
-        send_smsg([type        |-> "REQ",
+o_send_req(r_ts, r_id, r_type) ==  
+        send_omsg([type        |-> "REQ",
                    rTS         |-> r_ts, 
                    rID         |-> r_id, 
                    rType       |-> r_type, 
                    epochID     |-> mEID ])              
 
-s_send_nack(r_ts, r_id) ==  
-        send_smsg([type        |-> "NACK",
+o_send_nack(r_ts, r_id) ==  
+        send_omsg([type        |-> "NACK",
                    rTS         |-> r_ts, 
                    rID         |-> r_id])              
 
-s_send_inv(sender, driver, s_ts, s_vec, r_ts, r_id, r_type) ==  
-        send_smsg([type        |-> "S_INV",
+o_send_inv(sender, driver, o_ts, o_vec, r_ts, r_id, r_type) ==  
+        send_omsg([type        |-> "S_INV",
                    sender      |-> sender,
                    driver      |-> driver,
-                   sTS         |-> s_ts, 
-                   sVector     |-> s_vec, 
+                   oTS         |-> o_ts, 
+                   oVector     |-> o_vec, 
                    rTS         |-> r_ts, 
                    rID         |-> r_id, 
                    rType       |-> r_type,              
                    epochID     |-> mEID ])              
 
-s_send_ack(sender, s_ts, t_version) ==  
-        send_smsg([type        |-> "S_ACK",
+o_send_ack(sender, o_ts, t_version) ==  
+        send_omsg([type        |-> "S_ACK",
                    sender      |-> sender,
-                   sTS         |-> s_ts, 
+                   oTS         |-> o_ts, 
                    tVersion    |-> t_version,              
                    epochID     |-> mEID ])              
 
-s_send_resp(r_ts, s_ts, s_vector, t_version) ==  
-        send_smsg([type        |-> "RESP",
-                   sVector     |-> s_vector,
-                   sTS         |-> s_ts, 
+o_send_resp(r_ts, o_ts, o_vec, t_version) ==  
+        send_omsg([type        |-> "RESP",
+                   oVector     |-> o_vec,
+                   oTS         |-> o_ts, 
                    rTS         |-> r_ts, 
                    tVersion    |-> t_version,              
                    epochID     |-> mEID ])              
 
-\* TBD:post-svec
-\*s_send_val(s_ts, s_vector) ==  
-s_send_val(s_ts) ==  
-        send_smsg([type        |-> "S_VAL",
-                   sTS         |-> s_ts,              
-\*                   sVector     |-> s_vector, \* TBD:post-svec
+o_send_val(o_ts) ==  
+        send_omsg([type        |-> "S_VAL",
+                   oTS         |-> o_ts,              
                    epochID     |-> mEID    ])
                    
 \* Operators to check received messages (m stands for message)
-s_rcv_req(m) == 
+o_rcv_req(m) == 
     /\ m.type = "REQ"
     /\ m.epochID = mEID
     /\ not_completed_rTS(m.rTS)
 
-s_rcv_nack(m, receiver) ==
+o_rcv_nack(m, receiver) ==
     /\ m.type = "NACK"
     /\ m.rTS  = rTS[receiver]
     /\ m.rID  = rID[receiver]
 
-s_rcv_resp(m, receiver)  ==
+o_rcv_resp(m, receiver)  ==
     /\ m.type    = "RESP"
     /\ m.epochID = mEID
     /\ m.rTS     = rTS[receiver]
 
-s_rcv_inv(m, receiver)  ==
+o_rcv_inv(m, receiver)  ==
     /\ m.type     = "S_INV"
     /\ m.epochID  = mEID
     /\ m.sender   # receiver
 
-s_rcv_inv_equal_ts(m, receiver)  ==
-    /\ s_rcv_inv(m, receiver)
-    /\ is_equalTS(m.sTS, sTS[receiver])
+o_rcv_inv_equal_ts(m, receiver)  ==
+    /\ o_rcv_inv(m, receiver)
+    /\ is_equalTS(m.oTS, oTS[receiver])
 
-s_rcv_inv_smaller_ts(m, receiver)  ==
-    /\ s_rcv_inv(m, receiver)
-    /\ is_smallerTS(m.sTS, sTS[receiver])
+o_rcv_inv_smaller_ts(m, receiver)  ==
+    /\ o_rcv_inv(m, receiver)
+    /\ is_smallerTS(m.oTS, oTS[receiver])
 
-s_rcv_inv_greater_ts(m, receiver)  ==
-    /\ s_rcv_inv(m, receiver)
-    /\ is_greaterTS(m.sTS, sTS[receiver])
+o_rcv_inv_greater_ts(m, receiver)  ==
+    /\ o_rcv_inv(m, receiver)
+    /\ is_greaterTS(m.oTS, oTS[receiver])
 
-s_rcv_inv_greatereq_ts(m, receiver)  ==
-    /\ s_rcv_inv(m, receiver)
-    /\ ~is_smallerTS(m.sTS, sTS[receiver])
+o_rcv_inv_greatereq_ts(m, receiver)  ==
+    /\ o_rcv_inv(m, receiver)
+    /\ ~is_smallerTS(m.oTS, oTS[receiver])
 
-s_rcv_ack(m, receiver)  ==
+o_rcv_ack(m, receiver)  ==
     /\ m.type     = "S_ACK"
     /\ m.epochID  = mEID
     /\ m.sender   # receiver
-    /\ sState[receiver] = "drive"
-    /\ m.sender   \notin sRcvACKs[receiver]
-    /\ is_equalTS(m.sTS, sTS[receiver])
+    /\ oState[receiver] = "drive"
+    /\ m.sender   \notin oRcvACKs[receiver]
+    /\ is_equalTS(m.oTS, oTS[receiver])
     
-s_rcv_val(m, receiver)  ==
+o_rcv_val(m, receiver)  ==
     /\ m.type = "S_VAL"
     /\ m.epochID  = mEID
-    /\ sState[receiver] # "valid"
-    /\ is_equalTS(m.sTS, sTS[receiver])
+    /\ oState[receiver] # "valid"
+    /\ is_equalTS(m.oTS, oTS[receiver])
     
     
 \* Used to not re-issue messages that already exists (and bound the state space)
-msg_not_exists(s_rcv_msg(_, _), receiver) ==
-        ~\E mm \in sMsgs: s_rcv_msg(mm, receiver)
+msg_not_exists(o_rcv_msg(_, _), receiver) ==
+        ~\E mm \in oMsgs: o_rcv_msg(mm, receiver)
     
 
 
-rcved_acks_from_set(n, set) ==  set \subseteq sRcvACKs[n]
+rcved_acks_from_set(n, set) ==  set \subseteq oRcvACKs[n]
 
 \* Check if all acknowledgments from arbiters have been received                                                  
 has_rcved_all_ACKs(n) == 
     /\ rEID[n] = mEID
-    /\ IF     sVector[n].owner  # 0
-       THEN   rcved_acks_from_set(n, {sVector[n].owner} \union LB_LIVE_ARBITERS(n)) 
+    /\ IF     oVector[n].owner  # 0
+       THEN   rcved_acks_from_set(n, {oVector[n].owner} \union LB_LIVE_ARBITERS(n)) 
        ELSE \/ /\ ~requester_is_alive(n)
                /\  rcved_acks_from_set(n, LB_LIVE_ARBITERS(n))
-            \/ /\  sVector[n].readers # {}
-               /\  \E x \in sVector[n].readers: rcved_acks_from_set(n, {x} \union LB_LIVE_ARBITERS(n)) 
+            \/ /\  oVector[n].readers # {}
+               /\  \E x \in oVector[n].readers: rcved_acks_from_set(n, {x} \union LB_LIVE_ARBITERS(n)) 
 -------------------------------------------------------------------------------------
 \* message helper functions related to transactions
 t_send(n, msg_type, t_ver) ==
-        send_smsg([type        |-> msg_type,
+        send_omsg([type        |-> msg_type,
                    tVersion    |-> t_ver,              
                    sender      |-> n,
                    epochID     |-> mEID    ])
@@ -391,7 +387,7 @@ t_rcv_ack(m, receiver)  ==
     /\ m.tVersion = tVersion[receiver]
     
 t_rcv_val(m, receiver)  ==
-    /\ m.type = "S_VAL"
+    /\ m.type = "T_VAL"
     /\ m.epochID  = mEID
     /\ tState[receiver] # "valid"
     /\ m.tVersion = tVersion[receiver]
@@ -428,32 +424,32 @@ OWNER_LATEST_DATA ==
 CONSISTENT_SHARERS == 
     \A k,n \in mAliveNodes: \/ ~is_valid_live_arbiter(n)
                             \/ ~is_valid_live_arbiter(k)
-                            \/ /\ sTS[n] = sTS[k]
-                               /\ sVector[n] = sVector[k]
+                            \/ /\ oTS[n] = oTS[k]
+                               /\ oVector[n] = oVector[k]
 
 
-CONSISTENT_SVECTORS_Fwd == 
+CONSISTENT_OVECTORS_Fwd == 
     \A n \in mAliveNodes: \/ ~is_valid_live_arbiter(n)
-                          \/ /\ \A r \in sVector[n].readers: 
+                          \/ /\ \A r \in oVector[n].readers: 
                                 /\ has_data(r)
                                 /\ ~is_valid_owner(r)
-                             /\ \/ sVector[n].owner = 0 
-                                \/ is_owner(sVector[n].owner)
+                             /\ \/ oVector[n].owner = 0 
+                                \/ is_owner(oVector[n].owner)
 
-CONSISTENT_SVECTORS_Reverse_owner == 
+CONSISTENT_OVECTORS_Reverse_owner == 
     \A o,n \in mAliveNodes: \/ ~is_valid_owner(o)
                             \/ ~is_valid_live_arbiter(n)
-                            \/ sVector[n].owner = o
+                            \/ oVector[n].owner = o
 
-CONSISTENT_SVECTORS_Reverse_readers == 
+CONSISTENT_OVECTORS_Reverse_readers == 
     \A r,n \in mAliveNodes: \/ ~is_reader(r)
                             \/ ~is_valid_live_arbiter(n)
-                            \/ r \in sVector[n].readers 
+                            \/ r \in oVector[n].readers 
 
 \* The owner and readers are always correctly reflected by any valid sharing vectors
-CONSISTENT_SVECTORS ==                           
-    /\ CONSISTENT_SVECTORS_Fwd
-    /\ CONSISTENT_SVECTORS_Reverse_owner 
-    /\ CONSISTENT_SVECTORS_Reverse_readers 
+CONSISTENT_OVECTORS ==                           
+    /\ CONSISTENT_OVECTORS_Fwd
+    /\ CONSISTENT_OVECTORS_Reverse_owner 
+    /\ CONSISTENT_OVECTORS_Reverse_readers 
 
 =============================================================================
