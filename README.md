@@ -1,6 +1,6 @@
 # Zeus Transactional Protocols
 
-<img align="left" height="120" src="https://github.com/akatsarakis/zeus-specification/blob/master/zeus.png">
+<img align="left" height="130" src="https://github.com/akatsarakis/zeus-specification/blob/master/zeus.png">
 
 *Zeus* is a datastore that offers fast locality-aware distributed transactions with strong consistency and availability. A brief description follows and more details can be found in the [Eurosys'21](https://2021.eurosys.org/) paper. 
 
