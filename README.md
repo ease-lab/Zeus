@@ -61,5 +61,5 @@ To model check the protocols, you need to download and install the TLA+ Toolbox 
 This work is freely distributed under the [Apache 2.0 License](https://www.apache.org/licenses/LICENSE-2.0 "Apache 2.0").  
 
 ### Contact
- Antonios Katsarakis: [`antonis.io`](http://antonis.io/ "Personal webpage") |  [`antoniskatsarakis@yahoo.com`](mailto:antoniskatsarakis@yahoo.com?subject=[GitHub]%20Zeus%20Specification "Email")
+ Antonios Katsarakis: <a href="http://antonis.io/" title="Personal webpage" target="_blank">`antonis.io`</a> |  [`antoniskatsarakis@yahoo.com`](mailto:antoniskatsarakis@yahoo.com?subject=[GitHub]%20Zeus%20Specification "Email")
 
