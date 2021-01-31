@@ -27,7 +27,7 @@ Transactions in Zeus involve three main phases:
 ## Properties and Invariants
 __Faults__: The specification and model checking assumes that crash-stop node faults and message reorderings may occur.
 Message losses in Zeus are handled via retransmissions. The exact failure model can be found in the paper. <br />
-__Strong Consistency__: Zeus transactions are strictly serializable.<br />
+__Strong Consistency__: Zeus transactions guarantee the strongest consistency (i.e., are strictly serializable).<br />
 __Invariants__: A list of model-checked invariants provided by the protocols follows
 * Amongst concurrent ownership requests to the same object, at most one succeeds.
 * At any time, there is at most one valid owner of an object.
@@ -46,7 +46,7 @@ To model check the protocols, you need to download and install the TLA+ Toolbox 
 * __Create a spec__: *File>Open Spec>Add New Spec...*; Browse and use *zeus/reliable_commit_protocol/ZeusReliableCommit.tla* as root module to finish.
 * __Create a new Model__: Navigate to *TLC Model Checker>New model...*; and create a model with the name "reliable-commit-model".
 * __Setup Behavior__: In *Model Overview* tab of the model, and under the *"What is the behavior spec?"* section, select *"Temporal formula"* and write *"Spec"*.
-* __Setup Constants__: Then specify the values of declared constants (under *"What is the model?"* section). You may use low values for constants to check correctness without exploding the state space. An example configuration would be three nodes and maximum versions of two or three. To accomplish that, you would need to click on each constant and select the "ordinary assignment" option. Then fill the box for version and epoch constants (e.g., *R_MAX_VERSION*) with a small number (e.g., with *"2"* or *"3"*) and for any node related fields (e.g., *R_NODES*) with a set of nodes (e.g., *"1,2,3"* -- for three nodes).
+* __Setup Constants__: Then specify the values of declared constants (under *"What is the model?"* section). You may use low values for constants to check correctness without exploding the state space. An example configuration would be three nodes and maximum versions of two or three. To accomplish that, you would need to click on each constant and select the "ordinary assignment" option. Then fill the box for version and epoch constants (e.g., *R_MAX_VERSION*) with a small number (e.g., with *"2"* or *"3"*) and for any node related fields (e.g., *R_NODES*) with a set of nodes (e.g., *"{1,2,3}"* -- for three nodes).
 
 ### File Structure
 * __The reliable commit specification__ is a single TLA+ module in *zeus/reliable_commit_protocol* folder.
