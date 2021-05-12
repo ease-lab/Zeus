@@ -1,4 +1,4 @@
-# Zeus Transactional Protocols
+# Zeus Ownership and Transactional Protocols
 
 <img align="left" height="130" src="https://github.com/akatsarakis/zeus-specification/blob/master/zeus.png">
 
