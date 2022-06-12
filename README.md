@@ -9,6 +9,19 @@ This is the publicly available artifact repository supporting *Zeus*, which cont
 ##  Inspired by
 Zeus protocols build on ideas of [Hermes](https://hermes-protocol.com/) and draws inspiration from cache coherence and hardware transactional memory exapting ideas to a replicated distributed setting for availability. Inspired concepts include the invalidation-based design of both proposed protocols and Zeus's approach to move objects and ensure exclusive write access (*ownership*) to the coordinator of a write transaction.
 
+## Citation
+```
+@inproceedings{Katsarakis:21,
+author = {Katsarakis, Antonios and Ma, Yijun and Tan, Zhaowei and Bainbridge, Andrew and Balkwill, Matthew and Dragojevic, Aleksandar and Grot, Boris and Radunovic, Bozidar and Zhang, Yongguang},
+title = {Zeus: Locality-Aware Distributed Transactions},
+year = {2021},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+booktitle = {Proceedings of the Sixteenth European Conference on Computer Systems},
+location = {Online Event, United Kingdom},
+series = {EuroSys '21}
+}
+```
 ----
 # Locality-aware reliable transactions  
 Transactions in Zeus involve three main phases:
